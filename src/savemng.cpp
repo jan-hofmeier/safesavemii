@@ -1,4 +1,3 @@
-#include "fatfs/sd_devoptab/sd_devoptab.h"
 #include <LockingQueue.h>
 #include <chrono>
 #include <cstring>
