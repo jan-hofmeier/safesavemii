@@ -85,7 +85,6 @@ bool initFS() {
         Mocha_MountFS("storage_mlc01", nullptr, "/vol/storage_mlc01");
         Mocha_MountFS("storage_usb01", nullptr, "/vol/storage_usb01");
         Mocha_MountFS("storage_usb02", nullptr, "/vol/storage_usb02");
-        init_sd_devoptab();
         if (checkEntry("storage_usb01:/usr") == 2)
             usb = "storage_usb01:";
         else if (checkEntry("storage_usb02:/usr") == 2)
@@ -96,7 +95,6 @@ bool initFS() {
 }
 
 void shutdownFS() {
-    fini_sd_devoptab();
     Mocha_UnmountFS("storage_slccmpt01");
     Mocha_UnmountFS("storage_mlc01");
     Mocha_UnmountFS("storage_usb01");
