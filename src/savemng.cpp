@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <utils/LanguageUtils.h>
 #include <utils/StringUtils.h>
+#include <malloc.h>
 
 #define __FSAShimSend      ((FSError(*)(FSAShimBuffer *, uint32_t))(0x101C400 + 0x042d90))
 #define IO_MAX_FILE_BUFFER (1024 * 1024) // 1 MB
