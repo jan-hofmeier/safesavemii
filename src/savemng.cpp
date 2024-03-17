@@ -222,7 +222,6 @@ static bool createFolder(const char *path) {
     while ((pos = strPath.find('/', pos + 1)) != std::string::npos) {
         dir = strPath.substr(0, pos);
         if (mkdir(dir.c_str(), 0x666) != 0 && errno != EEXIST){
-            WHBLogPrintf("Error creating dir: %s: %i", dir.c_str(), errno);
             return false;
         }
         FSAChangeMode(handle, newlibtoFSA(dir).c_str(), (FSMode) 0x666);
