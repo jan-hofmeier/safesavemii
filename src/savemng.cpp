@@ -13,6 +13,10 @@
 #define __FSAShimSend      ((FSError(*)(FSAShimBuffer *, uint32_t))(0x101C400 + 0x042d90))
 #define IO_MAX_FILE_BUFFER (1024 * 1024) // 1 MB
 
+const char *backupPath = "fs:/vol/external01/wiiu/backups";
+const char *loadiineSavePath = "fs:/vol/external01/wiiu/saves";
+const char *legacyBackupPath = "fs:/vol/external01/savegames";
+
 static char *p1;
 Account *wiiuacc;
 Account *sdacc;
@@ -45,6 +49,14 @@ std::string newlibtoFSA(std::string path) {
         StringUtils::replace(path, "storage_usb02:", "/vol/storage_usb02");
     }
     return path;
+}
+
+std::string getBackupPath(uint32_t highId, uint32_t lowId, uint8_t slot){
+    return StringUtils::stringFormat("%s/%08x%08x/%u", backupPath, lowId, highId, slot);
+}
+
+std::string getLegacyBackupPath(uint32_t highId, uint32_t lowId){
+    return StringUtils::stringFormat("%s/%08x%08x", legacyBackupPath, highId, lowId);
 }
 
 uint8_t getSDaccn() {
@@ -203,11 +215,16 @@ static bool folderEmpty(const char *fPath) {
 static bool createFolder(const char *path) {
     std::string strPath(path);
     size_t pos = 0;
+    std::string vol_prefix("fs:/vol/");
+    if(strPath.starts_with(vol_prefix))
+        pos = strPath.find('/', vol_prefix.length());
     std::string dir;
     while ((pos = strPath.find('/', pos + 1)) != std::string::npos) {
         dir = strPath.substr(0, pos);
-        if (mkdir(dir.c_str(), 0x666) != 0 && errno != EEXIST)
+        if (mkdir(dir.c_str(), 0x666) != 0 && errno != EEXIST){
+            WHBLogPrintf("Error creating dir: %s: %i", dir.c_str(), errno);
             return false;
+        }
         FSAChangeMode(handle, newlibtoFSA(dir).c_str(), (FSMode) 0x666);
     }
     if (mkdir(strPath.c_str(), 0x666) != 0 && errno != EEXIST)
@@ -420,7 +437,7 @@ void getAccountsSD(Title *title, uint8_t slot) {
     if (sdacc != nullptr)
         free(sdacc);
 
-    std::string path = StringUtils::stringFormat("fs:/wiiu/backups/%08x%08x/%u", highID, lowID, slot);
+    std::string path = getBackupPath(highID, lowID, slot);
     DIR *dir = opendir(path.c_str());
     if (dir != nullptr) {
         struct dirent *data;
@@ -634,7 +651,7 @@ static std::string getUserID() { // Source: loadiine_gx2
 }
 
 bool getLoadiineGameSaveDir(char *out, const char *productCode, const char *longName, const uint32_t highID, const uint32_t lowID) {
-    DIR *dir = opendir("fs:/wiiu/saves");
+    DIR *dir = opendir(loadiineSavePath);
 
     if (dir == nullptr)
         return false;
@@ -642,7 +659,7 @@ bool getLoadiineGameSaveDir(char *out, const char *productCode, const char *long
     struct dirent *data;
     while ((data = readdir(dir)) != nullptr) {
         if (((data->d_type & DT_DIR) != 0) && ((strstr(data->d_name, productCode) != nullptr) || (strstr(data->d_name, StringUtils::stringFormat("%s [%08x%08x]", longName, highID, lowID).c_str()) != nullptr))) {
-            sprintf(out, "fs:/wiiu/saves/%s", data->d_name);
+            sprintf(out, "%s/%s", loadiineSavePath, data->d_name);
             closedir(dir);
             return true;
         }
@@ -698,9 +715,9 @@ static bool getLoadiineUserDir(char *out, const char *fullSavePath, const char *
 bool isSlotEmpty(uint32_t highID, uint32_t lowID, uint8_t slot) {
     std::string path;
     if (((highID & 0xFFFFFFF0) == 0x00010000) && (slot == 255))
-        path = StringUtils::stringFormat("fs:/savegames/%08x%08x", highID, lowID);
+        path = getLegacyBackupPath(highID, lowID);
     else
-        path = StringUtils::stringFormat("fs:/wiiu/backups/%08x%08x/%u", highID, lowID, slot);
+        path = getBackupPath(highID, lowID, slot);
     int ret = checkEntry(path.c_str());
     return ret <= 0;
 }
@@ -734,7 +751,7 @@ bool hasAccountSave(Title *title, bool inSD, bool iine, uint32_t user, uint8_t s
             }
         } else {
             if (!iine) {
-                sprintf(srcPath, "fs:/wiiu/backups/%08x%08x/%u/%08X", highID, lowID, slot, user);
+                sprintf(srcPath, "%s/%08X", getBackupPath(highID, lowID, slot).c_str(), user);
             } else {
                 if (!getLoadiineGameSaveDir(srcPath, title->productCode, title->longName, title->highID, title->lowID)) {
                     return false;
@@ -756,7 +773,7 @@ bool hasAccountSave(Title *title, bool inSD, bool iine, uint32_t user, uint8_t s
         if (!inSD) {
             sprintf(srcPath, "storage_slccmpt01:/title/%08x/%08x/data", highID, lowID);
         } else {
-            sprintf(srcPath, "fs:/wiiu/backups/%08x%08x/%u", highID, lowID, slot);
+            strcpy(srcPath, getBackupPath(highID, lowID, slot).c_str());
         }
     }
     if (checkEntry(srcPath) == 2) {
@@ -782,7 +799,7 @@ bool hasCommonSave(Title *title, bool inSD, bool iine, uint8_t slot, int version
         srcPath = StringUtils::stringFormat("%s/%08x/%08x/%s/common", path, highID, lowID, "user");
     } else {
         if (!iine) {
-            srcPath = StringUtils::stringFormat("fs:/wiiu/backups/%08x%08x/%u/common", highID, lowID, slot);
+            srcPath = getBackupPath(highID, lowID, slot) + "/common";
         } else {
             if (!getLoadiineGameSaveDir(srcPath.data(), title->productCode, title->longName, title->highID, title->lowID))
                 return false;
@@ -909,7 +926,7 @@ void backupAllSave(Title *titles, int count, OSCalendarTime *date) {
         bool isWii = ((highID & 0xFFFFFFF0) == 0x00010000);
         const std::string path = (isWii ? "storage_slccmpt01:/title" : (isUSB ? (getUSB() + "/usr/save").c_str() : "storage_mlc01:/usr/save"));
         std::string srcPath = StringUtils::stringFormat("%s/%08x/%08x/%s", path.c_str(), highID, lowID, isWii ? "data" : "user");
-        std::string dstPath = StringUtils::stringFormat("fs:/wiiu/backups/batch/%s/%08x%08x/0", datetime.c_str(), highID, lowID);
+        std::string dstPath = StringUtils::stringFormat("%s/batch/%s/%08x%08x/0", backupPath, datetime.c_str(), highID, lowID);
 
         createFolder(dstPath.c_str());
         if (!copyDir(srcPath, dstPath))
@@ -930,9 +947,9 @@ void backupSavedata(Title *title, uint8_t slot, int8_t allusers, bool common) {
     std::string srcPath = StringUtils::stringFormat("%s/%08x/%08x/%s", path.c_str(), highID, lowID, isWii ? "data" : "user");
     std::string dstPath;
     if (isWii && (slot == 255))
-        dstPath = StringUtils::stringFormat("fs:/savegames/%08x%08x", highID, lowID);
+        dstPath = StringUtils::stringFormat("%s/%08x%08x", legacyBackupPath, highID, lowID);
     else
-        dstPath = StringUtils::stringFormat("fs:/wiiu/backups/%08x%08x/%u", highID, lowID, slot);
+        dstPath = getBackupPath(highID, lowID, slot);
     createFolder(dstPath.c_str());
 
     if ((allusers > -1) && !isWii) {
@@ -985,9 +1002,9 @@ void restoreSavedata(Title *title, uint8_t slot, int8_t sdusers, int8_t allusers
     std::string srcPath;
     const std::string path = (isWii ? "storage_slccmpt01:/title" : (isUSB ? (getUSB() + "/usr/save").c_str() : "storage_mlc01:/usr/save"));
     if (isWii && (slot == 255))
-        srcPath = StringUtils::stringFormat("fs:/savegames/%08x%08x", highID, lowID);
+        srcPath = StringUtils::stringFormat("%s/%08x%08x", legacyBackupPath, highID, lowID);
     else
-        srcPath = StringUtils::stringFormat("fs:/wiiu/backups/%08x%08x/%u", highID, lowID, slot);
+        srcPath = getBackupPath(highID, lowID, slot);
     std::string dstPath = StringUtils::stringFormat("%s/%08x/%08x/%s", path.c_str(), highID, lowID, isWii ? "data" : "user");
     createFolderUnlocked(dstPath);
     FSAMakeQuotaFromDir(srcPath.c_str(), dstPath.c_str(), title->accountSaveSize);

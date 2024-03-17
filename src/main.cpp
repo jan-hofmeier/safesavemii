@@ -15,6 +15,8 @@
 #include <utils/StateUtils.h>
 #include <utils/StringUtils.h>
 #include <version.h>
+#include <whb/log_udp.h>
+#include <whb/log.h>
 
 static int wiiuTitlesCount = 0, vWiiTitlesCount = 0;
 
@@ -384,6 +386,8 @@ static void unloadTitles(Title *titles, int count) {
 }
 
 int main() {
+    WHBLogUdpInit();
+    WHBLogPrintf("Hello from savemii");
     AXInit();
     AXQuit();
     OSScreenInit();
